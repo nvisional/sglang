@@ -859,10 +859,15 @@ class TopK(BaseFusedOp):
             or runner_backend.is_flashinfer_mxfp4()
             and not self.is_fp4_experts
         ):
+            # BYPASSED keeps expert selection inside the kernel, so
+            # on_select_experts never runs. Keep STANDARD when the recorder
+            # is on (same gate as mimo_v2's bypassed top-k path).
+            force_standard = (
+                runner_backend.is_experimental_sgl_trtllm() and get_lora().enable_lora
+            ) or (get_exec().moe.expert_distribution_recorder_mode is not None)
             output_format = (
                 TopKOutputFormat.STANDARD
-                if runner_backend.is_experimental_sgl_trtllm()
-                and get_lora().enable_lora
+                if force_standard
                 else TopKOutputFormat.BYPASSED
             )
         else:

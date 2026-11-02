@@ -21,7 +21,13 @@ from sglang.srt.layers.moe.utils import (
 )
 from sglang.srt.layers.quantization.fp8 import Fp8MoEMethod
 from sglang.srt.layers.quantization.unquant import UnquantizedFusedMoEMethod
-from sglang.srt.runtime_context import get_context, get_flags, get_model, get_parallel
+from sglang.srt.runtime_context import (
+    get_context,
+    get_exec,
+    get_flags,
+    get_model,
+    get_parallel,
+)
 from sglang.test.ci.ci_register import register_cpu_ci
 from sglang.test.test_utils import CustomTestCase
 
@@ -546,6 +552,25 @@ class TestLayerRunnerDispatch(CustomTestCase):
         with get_flags().moe.override(runner_backend=MoeRunnerBackend.TRITON):
             output = topk.forward_cuda(torch.ones((1, 4)), torch.ones((1, 4)))
         self.assertEqual(output.format, TopKOutputFormat.BYPASSED)
+
+    def test_flashinfer_trtllm_bypass_disabled_when_expert_recorder_on(self):
+        """Recorder needs STANDARD top-k so on_select_experts can run (#47932)."""
+        topk = TopK(top_k=2, layer_id=0, allow_routed_experts_capture=False)
+        topk.bind_runner_backend(
+            MoeRunnerBackend.FLASHINFER_TRTLLM,
+            routing_method_type=RoutingMethodType.Renormalize,
+        )
+        self.assertEqual(topk.topk_config.output_format, TopKOutputFormat.BYPASSED)
+
+        with get_exec().moe.override(expert_distribution_recorder_mode="stat"):
+            topk_rec = TopK(top_k=2, layer_id=0, allow_routed_experts_capture=False)
+            topk_rec.bind_runner_backend(
+                MoeRunnerBackend.FLASHINFER_TRTLLM,
+                routing_method_type=RoutingMethodType.Renormalize,
+            )
+            self.assertEqual(
+                topk_rec.topk_config.output_format, TopKOutputFormat.STANDARD
+            )
 
     def test_auto_nvfp4_preserves_undeclared_routing_policy(self):
         """An AUTO-selected FP4 kernel must preserve renormalization and custom routes."""
